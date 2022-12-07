@@ -15,14 +15,16 @@ IMAGE_HYPERSTACK_DIM = 5
 VALID_DIMS = "tzcyx"
 
 
-class ImageHyperStack:
+class ImageHyperStack(np.ndarray):
     """A utility class that holds an image hyperstack."""
 
-    _images: NDArray[np.number]
     _channels: list[str | None]
     _channel_dim: int | None
+    _dims: str
 
-    def __init__(self, data: ArrayLike, dims: str = "tzcyx", channels: Iterable[str] | None = None):
+    def __new__(
+        cls, data: ArrayLike, dims: str = "tzcyx", channels: Iterable[str] | None = None
+    ) -> ImageHyperStack:
         """Create an ImageHyperStack from an array.
 
         Parameters
@@ -40,8 +42,8 @@ class ImageHyperStack:
             List of channel names. By default channels will only be indexable by numbers.
 
         """
-        self._images = np.array(data)
-        if self._images.ndim < IMAGE_DIM or self._images.ndim > IMAGE_HYPERSTACK_DIM:
+        self = np.asarray(data).view(cls)
+        if self.ndim < IMAGE_DIM or self.ndim > IMAGE_HYPERSTACK_DIM:
             raise ValueError(
                 f"Hyperstacks must have {IMAGE_DIM} to {IMAGE_HYPERSTACK_DIM} dimensions "
                 "got: {self._images.ndim} dimensions."
@@ -51,7 +53,7 @@ class ImageHyperStack:
         self._dims = dims.lower()
 
         # Make sure we have provided enough dimensions.
-        if len(self._dims) < self._images.ndim:
+        if len(self._dims) < self.ndim:
             raise ValueError(f"Dimensions string too short to describe data: {self._dims}.")
 
         # Make sure all dimensions are valid.
@@ -61,7 +63,7 @@ class ImageHyperStack:
             )
 
         # Truncate the number of dimensions so they match the provided data.
-        self._dims = self._dims[-self._images.ndim :]
+        self._dims = self._dims[-self.ndim :]
 
         # Check that compulsory dimensions are included.
         if "y" not in self._dims or "x" not in self._dims:
@@ -72,7 +74,7 @@ class ImageHyperStack:
         for dim in ["t", "z", "c", "y", "x"]:
             if dim in self._dims:
                 dim_permutation.append(self._dims.index(dim))
-        self._images = np.transpose(self._images, dim_permutation)
+        self = typing.cast(ImageHyperStack, np.transpose(self, dim_permutation))
 
         # Save the dimension of the channel if we have one.
         if "c" in self._dims:
@@ -82,12 +84,24 @@ class ImageHyperStack:
 
         if self._channel_dim is not None:
             # Register the channel names.
-            num_channels = self._images.shape[self._channel_dim]
+            num_channels = self.shape[self._channel_dim]
             self._channels = [None] * num_channels
             if channels is not None:
                 for i, channel in enumerate(channels):
                     self.rename_channel(i, channel)
                 self._channels = list(channels)
+
+        return self
+
+    def __array_finalize__(self, arr: Any) -> None:
+        if arr is None:
+            return
+
+        # TODO: Run array init code here rather than in __new__.
+        # We should also treat HyperImageStack arr differently.
+        self._channel_dim = getattr(arr, "_channel_dim", None)
+        self._channels = getattr(arr, "_channels", None)
+        self._dims = getattr(arr, "_dims", "tzcyx")
 
     def rename_channel(self, old_name: str | int, new_name: str) -> None:
         """Rename channel name using the old name or its index.
@@ -153,7 +167,8 @@ class ImageHyperStack:
                 new_idxs = channels_to_idx(idxs)
 
         try:
-            return typing.cast(NDArray[np.number] | np.number, self._images[new_idxs])
+            # TODO: We shouldn't always return an ImageHyperStack if it doesn't make sense.
+            return typing.cast(ImageHyperStack, super().__getitem__(new_idxs))
         except IndexError as e:
             if "arrays are valid indices" in str(e):
                 raise IndexError(
