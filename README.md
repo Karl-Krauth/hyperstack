@@ -6,9 +6,9 @@ Hyperstack allows you to easily read your image data from files and interact
 with them as numpy arrays.
 ```python
 >>> import hyperstack as hs
->>> images = hs.read_file("example.ome.tif")
+>>> images = hs.read_ome("example.ome.tif")
 >>> images.dims
-'TCYX'
+'tcyx'
 >>> images.channels
 ['brightfield', 'cy5', 'egfp']
 >>> images.shape
